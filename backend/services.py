@@ -178,7 +178,8 @@ def compute_insights(db: Session, username: str) -> dict:
         }
     
     # Use Gemini API if API key is configured and module is available
-    if GEMINI_AVAILABLE and settings.GEMINI_API_KEY:
+    # Currently disabled - use rule-based insights instead
+    if False and GEMINI_AVAILABLE and settings.GEMINI_API_KEY:
         try:
             genai.configure(api_key=settings.GEMINI_API_KEY)
             model = genai.GenerativeModel(settings.GEMINI_MODEL)
