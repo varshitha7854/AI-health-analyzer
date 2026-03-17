@@ -4,6 +4,14 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 from models import User, DailyEntry
 from schemas import UserCreate, DailyEntryCreate
+from config import settings
+
+# Optional import - Gemini API if available
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
 
 def create_user(db: Session, user: UserCreate) -> User:
@@ -136,7 +144,8 @@ def get_user_entries_count(db: Session, username: str) -> int:
 
 def compute_insights(db: Session, username: str) -> dict:
     """
-    Generate AI insights based on user stats.
+    Generate AI insights using Gemini API based on user health data.
+    Falls back to rule-based insights if API fails.
     Returns: {
         "messages": ["insight 1", "insight 2", ...],
         "weekly_summary": "brief overview of the week"
@@ -161,7 +170,88 @@ def compute_insights(db: Session, username: str) -> dict:
         DailyEntry.date >= thirty_days_ago
     ).all()
     
-    # Calculate aggregates
+    # Return early if no data
+    if not entries_30d:
+        return {
+            "messages": ["Start logging your mood and energy to get AI-powered insights!"],
+            "weekly_summary": "No data yet. Begin tracking to see patterns."
+        }
+    
+    # Use Gemini API if API key is configured and module is available
+    if GEMINI_AVAILABLE and settings.GEMINI_API_KEY:
+        try:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            
+            # Prepare data summary for Gemini
+            avg_mood_7d = sum(e.mood_score for e in entries_7d) / len(entries_7d) if entries_7d else 0
+            avg_energy_7d = sum(e.energy for e in entries_7d) / len(entries_7d) if entries_7d else 0
+            avg_mood_30d = sum(e.mood_score for e in entries_30d) / len(entries_30d)
+            avg_energy_30d = sum(e.energy for e in entries_30d) / len(entries_30d)
+            
+            today_entries = [e for e in entries_7d if e.date == today]
+            today_mood = today_entries[0].mood_score if today_entries else None
+            today_energy = today_entries[0].energy if today_entries else None
+            
+            # Build detailed prompt for Gemini
+            prompt = f"""You are a compassionate wellness coach analyzing mood and energy data.
+
+User Health Data (Last 7 days):
+- Average Mood: {avg_mood_7d:.1f}/10
+- Average Energy: {avg_energy_7d:.1f}/10
+- Total entries: {len(entries_7d)}
+{f"- Today's Mood: {today_mood}/10" if today_mood else ""}
+{f"- Today's Energy: {today_energy}/10" if today_energy else ""}
+
+Historical Trend (30 days):
+- Average Mood: {avg_mood_30d:.1f}/10
+- Average Energy: {avg_energy_30d:.1f}/10
+
+Recent notes from user:
+{'; '.join([e.notes for e in entries_7d if e.notes][:3]) or "No notes recorded."}
+
+Please provide:
+1. 2-3 brief, personalized wellness insights (1-2 sentences each, practical and supportive)
+2. A one-sentence weekly summary
+
+Format your response as:
+INSIGHTS:
+[insight 1]
+[insight 2]
+[optional insight 3]
+
+SUMMARY:
+[one sentence summary]"""
+
+            response = model.generate_content(prompt)
+            
+            # Parse Gemini response
+            response_text = response.text
+            insights_section = response_text.split("INSIGHTS:\n")[1].split("\nSUMMARY:")[0].strip()
+            summary_section = response_text.split("SUMMARY:\n")[1].strip()
+            
+            # Split insights into individual messages
+            insight_messages = [msg.strip() for msg in insights_section.split("\n") if msg.strip() and not msg.startswith("[")]
+            
+            return {
+                "messages": insight_messages[:3],
+                "weekly_summary": summary_section
+            }
+        except Exception as e:
+            # Fall back to rule-based insights on API error
+            print(f"Gemini API error: {e}")
+            return _compute_rule_based_insights(entries_7d, entries_30d)
+    else:
+        # Use rule-based insights if no API key
+        return _compute_rule_based_insights(entries_7d, entries_30d)
+
+
+def _compute_rule_based_insights(entries_7d: list, entries_30d: list) -> dict:
+    """
+    Generate rule-based insights (fallback when Gemini API is not available).
+    """
+    today = datetime.now().date()
+    
     if not entries_30d:
         return {
             "messages": ["Start logging your mood and energy to get insights!"],
