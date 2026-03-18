@@ -1,4 +1,4 @@
-const API_BASE = 'https://ai-health-analyzer-backend.vercel.app'
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000'
 
 export async function createUser(username) {
   const response = await fetch(`${API_BASE}/users/`, {
