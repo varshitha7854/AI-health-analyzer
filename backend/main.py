@@ -24,7 +24,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:5174",
-        "https://ai-health-analyzer.vercel.app"
+        "https://ai-health-analyzer.vercel.app",
+        "https://ai-health-analyzer-frontend.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -32,15 +33,16 @@ app.add_middleware(
 )
 
 
+
 @app.get("/")
 def root():
-    """Root endpoint - welcome message."""
     return {
         "message": "AI Health Analyzer API",
         "version": "1.0",
-        "docs": "http://localhost:8000/docs",
-        "health": "http://localhost:8000/health"
+        "docs": "/docs",
+        "health": "/health",
     }
+
 
 
 @app.get("/health")
